@@ -12,6 +12,7 @@ namespace TYPO3\Media\Domain\Service;
  *                                                                        */
 
 use TYPO3\Flow\Annotations as Flow;
+use TYPO3\Flow\Exception;
 use TYPO3\Flow\Log\SystemLoggerInterface;
 use TYPO3\Flow\Persistence\PersistenceManagerInterface;
 use TYPO3\Flow\SignalSlot\Dispatcher;
@@ -78,21 +79,29 @@ class ThumbnailService {
 	 * @param string $ratioMode Whether the resulting image should be cropped if both edge's sizes are supplied that would hurt the aspect ratio
 	 * @param boolean $allowUpScaling Whether the resulting image should be upscaled
 	 * @return Thumbnail
-	 * @throws \Exception
 	 */
 	public function getThumbnail(AssetInterface $asset, $maximumWidth = NULL, $maximumHeight = NULL, $ratioMode = ImageInterface::RATIOMODE_INSET, $allowUpScaling = NULL) {
 		$thumbnail = $this->thumbnailRepository->findOneByAssetAndDimensions($asset, $ratioMode, $maximumWidth, $maximumHeight, $allowUpScaling);
-		if ($thumbnail === NULL) {
-			if (!$asset instanceof ImageInterface) {
-				throw new NoThumbnailAvailableException(sprintf('ThumbnailService could not generate a thumbnail for asset of type "%s" because currently only Image assets are supported.', get_class($asset)), 1381493670);
-			}
-			$thumbnail = new Thumbnail($asset, $maximumWidth, $maximumHeight, $ratioMode, $allowUpScaling);
 
-			// Allow thumbnails to be persisted even if this is a "safe" HTTP request:
-			$this->thumbnailRepository->add($thumbnail);
-			$asset->addThumbnail($thumbnail);
-			$this->persistenceManager->whiteListObject($thumbnail);
-			$this->persistenceManager->whiteListObject($thumbnail->getResource());
+		if ($thumbnail === NULL) {
+			try {
+				$thumbnail = new Thumbnail($asset, $maximumWidth, $maximumHeight, $ratioMode);
+
+				// If the thumbnail strategy failed to generate a valid thumbnail
+				if ($thumbnail->getResource() === NULL) {
+					$this->thumbnailRepository->remove($thumbnail);
+					return NULL;
+				}
+
+				$thumbnail = new Thumbnail($asset, $maximumWidth, $maximumHeight, $ratioMode, $allowUpScaling);
+				$this->thumbnailRepository->add($thumbnail);
+				$asset->addThumbnail($thumbnail);
+				$this->persistenceManager->whiteListObject($thumbnail);
+				$this->persistenceManager->whiteListObject($thumbnail->getResource());
+			} catch (NoThumbnailAvailableException $exception) {
+				$this->systemLogger->logException($exception);
+				return NULL;
+			}
 		}
 
 		return $thumbnail;

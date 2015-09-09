@@ -15,6 +15,7 @@ use TYPO3\Flow\Annotations as Flow;
 use TYPO3\Flow\Resource\ResourceManager;
 use TYPO3\Media\Domain\Model\AssetInterface;
 use \TYPO3\Media\Domain\Model\ImageInterface;
+use TYPO3\Media\Domain\Model\Thumbnail;
 
 class AssetService {
 
@@ -42,15 +43,15 @@ class AssetService {
 	 * @return array with keys "width", "height" and "src"
 	 */
 	public function getThumbnailUriAndSizeForAsset(AssetInterface $asset, $maximumWidth, $maximumHeight, $allowCropping = FALSE, $allowUpScaling = NULL) {
-		if ($asset instanceof ImageInterface) {
-			$thumbnailImage = $this->getImageThumbnailImage($asset, $maximumWidth, $maximumHeight, $allowCropping, $allowUpScaling);
+		$thumbnailImage = $this->getImageThumbnail($asset, $maximumWidth, $maximumHeight, $allowCropping, $allowUpScaling);
+		if ($thumbnailImage instanceof ImageInterface) {
 			$thumbnailData = array(
 				'width' => $thumbnailImage->getWidth(),
 				'height' => $thumbnailImage->getHeight(),
 				'src' => $this->resourceManager->getPublicPersistentResourceUri($thumbnailImage->getResource())
 			);
 		} else {
-			$thumbnailData = $this->getAssetThumbnailImage($asset, $maximumWidth, $maximumHeight);
+			$thumbnailData = $this->getAssetIcon($asset, $maximumWidth, $maximumHeight);
 		}
 
 		return $thumbnailData;
@@ -60,17 +61,24 @@ class AssetService {
 	 * Calculates the dimensions of the thumbnail to be generated and returns the thumbnail image if the new dimensions
 	 * differ from the specified image dimensions, otherwise the original image is returned.
 	 *
-	 * @param ImageInterface $image
+	 * @param AssetInterface $asset
 	 * @param integer $maximumWidth
 	 * @param integer $maximumHeight
 	 * @param boolean $allowCropping
 	 * @param boolean $allowUpScaling
 	 * @return ImageInterface
 	 */
-	protected function getImageThumbnailImage(ImageInterface $image, $maximumWidth = NULL, $maximumHeight = NULL, $allowCropping = NULL, $allowUpScaling = NULL) {
+	protected function getImageThumbnail(AssetInterface $asset, $maximumWidth = NULL, $maximumHeight = NULL, $allowCropping = NULL, $allowUpScaling = NULL) {
 		$ratioMode = ($allowCropping ? ImageInterface::RATIOMODE_OUTBOUND : ImageInterface::RATIOMODE_INSET);
+		if ($allowUpScaling === FALSE && $asset instanceof ImageInterface) {
+			$maximumWidth = ($maximumWidth > $asset->getWidth()) ? $asset->getWidth() : $maximumWidth;
+			$maximumHeight = ($maximumHeight > $asset->getHeight()) ? $asset->getHeight() : $maximumHeight;
+			if ($maximumWidth === $asset->getWidth() && $maximumHeight === $asset->getHeight()) {
+				return $asset;
+			}
+		}
 
-		return $this->thumbnailService->getThumbnail($image, $maximumWidth, $maximumHeight, $ratioMode, $allowUpScaling);
+		return $this->thumbnailService->getThumbnail($asset, $maximumWidth, $maximumHeight, $ratioMode, $allowUpScaling);
 	}
 
 	/**
@@ -79,7 +87,7 @@ class AssetService {
 	 * @param integer $maximumHeight
 	 * @return array
 	 */
-	protected function getAssetThumbnailImage(AssetInterface $asset, $maximumWidth, $maximumHeight) {
+	protected function getAssetIcon(AssetInterface $asset, $maximumWidth, $maximumHeight) {
 		// TODO: Could be configurable at some point
 		$iconPackage = 'TYPO3.Media';
 
